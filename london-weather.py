@@ -151,7 +151,7 @@ if __name__ == "__main__":
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
     # Train the model
-    num_epochs = 100
+    num_epochs = 50
     all_train_losses = train_model(model, train_loader, num_epochs, optimizer, loss_function)
 
     # Evaluate the model
