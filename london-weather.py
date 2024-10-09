@@ -8,19 +8,18 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
-import plotly.graph_objects as go
 
-# Set device
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-# Function to load and preprocess data
+
 def load_and_preprocess_data(file_path):
     data = pd.read_csv(file_path)
     data_filled = data.ffill()
     features = data_filled.drop(['date', 'min_temp', 'mean_temp', 'max_temp'], axis=1)
     targets = data_filled[['min_temp', 'mean_temp', 'max_temp']]
-    
+
     # Normalize the features and targets
     scaler = MinMaxScaler()
     features_scaled = scaler.fit_transform(features)
@@ -29,8 +28,8 @@ def load_and_preprocess_data(file_path):
 
     return features_scaled, targets_scaled, target_scaler
 
-# Function to create input and target sequences
-def create_sequences(input_data, target_data, time_steps=6):
+
+def create_sequences(input_data, target_data, time_steps=7):
     X, y = [], []
     for i in range(0, len(input_data) - time_steps):
         input_seq = input_data[i:(i + time_steps), :]  # Extract input sequence
@@ -43,18 +42,28 @@ def create_sequences(input_data, target_data, time_steps=6):
 class WeatherLSTM(nn.Module):
     def __init__(self, input_size, hidden_layer_size, output_size):
         super(WeatherLSTM, self).__init__()
-        self.lstm = nn.LSTM(input_size, hidden_layer_size, num_layers=5, batch_first=True)
-        self.linear = nn.Linear(hidden_layer_size, output_size)
+        self.lstm = nn.LSTM(input_size, hidden_layer_size, num_layers=1, batch_first=True)
+
+        self.fc1 = nn.Linear(hidden_layer_size, 70)
+        self.fc2 = nn.Linear(70, 60)
+        self.fc3 = nn.Linear(60, 50)
+        self.fc4 = nn.Linear(50, output_size)
+
+        # Activation function
+        self.relu = nn.ReLU()
 
     def forward(self, input_seq):
         lstm_out, _ = self.lstm(input_seq)
-        predictions = self.linear(lstm_out[:, -1, :])
+        x = self.relu(self.fc1(lstm_out[:, -1, :]))
+        x = self.relu(self.fc2(x))
+        x = self.relu(self.fc3(x))
+        predictions = self.fc4(x)
+
         return predictions
 
-# Function to train the model
+
 def train_model(model, train_loader, num_epochs, optimizer, loss_function):
     all_train_losses = []
-    all_val_losses = []
 
     for epoch in range(num_epochs):
         model.train()
@@ -75,7 +84,7 @@ def train_model(model, train_loader, num_epochs, optimizer, loss_function):
 
     return all_train_losses
 
-# Function to evaluate the model
+
 def evaluate_model(model, test_loader, target_scaler):
     model.eval()
     test_predictions = []
@@ -104,7 +113,7 @@ def evaluate_model(model, test_loader, target_scaler):
 
     return test_predictions_inverse, test_actuals_inverse, test_mse
 
-# Function for plotting results
+
 def plot_results(actuals, predictions, title, ylabel):
     plt.figure(figsize=(12, 6))
     plt.plot(actuals, label='Actual')
@@ -115,16 +124,11 @@ def plot_results(actuals, predictions, title, ylabel):
     plt.legend()
     plt.show()
 
-# Function for interactive plotting using Plotly
-def plot_interactive_results(actuals, predictions, title):
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=np.arange(len(actuals)), y=actuals, mode='lines', name='Actual'))
-    fig.add_trace(go.Scatter(x=np.arange(len(predictions)), y=predictions, mode='lines', name='Predicted'))
-    fig.update_layout(title=title, xaxis_title='Samples', yaxis_title='Temperature')
-    fig.show()
+
 
 # Main workflow
 if __name__ == "__main__":
+    
     file_path = 'london_weather.csv'
     features_scaled, targets_scaled, target_scaler = load_and_preprocess_data(file_path)
 
@@ -134,24 +138,22 @@ if __name__ == "__main__":
     # Split data into train and test sets
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    # Create DataLoader
-    batch_size = 64
+
+    input_size = X.shape[2]
+    hidden_layer_size = 100
+    output_size = targets_scaled.shape[1]
+    num_epochs = 60
+    batch_size = 32
     train_dataset = TensorDataset(torch.Tensor(X_train), torch.Tensor(y_train))
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_dataset = TensorDataset(torch.Tensor(X_test), torch.Tensor(y_test))
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-    # Define and train the model
-    input_size = X.shape[2]
-    hidden_layer_size = 100
-    output_size = targets_scaled.shape[1]
 
     model = WeatherLSTM(input_size, hidden_layer_size, output_size).to(device)
     loss_function = nn.MSELoss().to(device)
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-    # Train the model
-    num_epochs = 50
     all_train_losses = train_model(model, train_loader, num_epochs, optimizer, loss_function)
 
     # Evaluate the model
@@ -166,7 +168,4 @@ if __name__ == "__main__":
     plot_results(test_actuals_inverse[:, 1], test_predictions_inverse[:, 1], 'Actual vs. Predicted Mean Temperature', 'Mean Temperature')
     plot_results(test_actuals_inverse[:, 2], test_predictions_inverse[:, 2], 'Actual vs. Predicted Maximum Temperature', 'Maximum Temperature')
 
-    # Interactive plots
-    plot_interactive_results(test_actuals_inverse[:, 0], test_predictions_inverse[:, 0], 'Interactive: Actual vs. Predicted Minimum Temperature')
-    plot_interactive_results(test_actuals_inverse[:, 1], test_predictions_inverse[:, 1], 'Interactive: Actual vs. Predicted Mean Temperature')
-    plot_interactive_results(test_actuals_inverse[:, 2], test_predictions_inverse[:, 2], 'Interactive: Actual vs. Predicted Maximum Temperature')
+
